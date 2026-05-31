@@ -15,6 +15,8 @@ public sealed class MainForm : Form
     private readonly DataGridView _intervalGrid = new() { Dock = DockStyle.Fill, AutoGenerateColumns = true, ReadOnly = true };
     private readonly Button _addGameButton = new() { Text = "Add game", AutoSize = true };
     private readonly Button _addIntervalButton = new() { Text = "Add time", AutoSize = true };
+    private readonly Button _editIntervalButton = new() { Text = "Edit time", AutoSize = true };
+    private readonly Button _deleteIntervalButton = new() { Text = "Delete time", AutoSize = true };
     private readonly Button _refreshButton = new() { Text = "Refresh", AutoSize = true };
     private readonly NumericUpDown _dailyCapacity = new() { Minimum = 0, Maximum = 1440, Value = 120, Increment = 15, Width = 90 };
     private readonly Label _capacityLabel = new() { AutoSize = true, Padding = new Padding(8, 6, 0, 0) };
@@ -45,8 +47,17 @@ public sealed class MainForm : Form
         _intervalGrid.DataSource = _intervalRows;
         _intervalGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _intervalGrid.MultiSelect = false;
+        _intervalGrid.DataBindingComplete += (_, _) =>
+        {
+            if (_intervalGrid.Columns[nameof(IntervalRow.IntervalId)] is { } idColumn)
+            {
+                idColumn.Visible = false;
+            }
+        };
         _addGameButton.Click += (_, _) => AddGame();
         _addIntervalButton.Click += (_, _) => AddManualInterval();
+        _editIntervalButton.Click += (_, _) => EditSelectedInterval();
+        _deleteIntervalButton.Click += (_, _) => DeleteSelectedInterval();
         _refreshButton.Click += (_, _) => RefreshRows();
         _dailyCapacity.ValueChanged += (_, _) => RefreshRows();
         _tracker.TrackingChanged += (_, _) => RefreshRows();
@@ -61,6 +72,8 @@ public sealed class MainForm : Form
 
         toolbar.Controls.Add(_addGameButton);
         toolbar.Controls.Add(_addIntervalButton);
+        toolbar.Controls.Add(_editIntervalButton);
+        toolbar.Controls.Add(_deleteIntervalButton);
         toolbar.Controls.Add(_refreshButton);
         toolbar.Controls.Add(new Label { Text = "Daily capacity, min", AutoSize = true, Padding = new Padding(16, 6, 0, 0) });
         toolbar.Controls.Add(_dailyCapacity);
@@ -124,6 +137,69 @@ public sealed class MainForm : Form
         RefreshRows();
     }
 
+    private void EditSelectedInterval()
+    {
+        var interval = GetSelectedInterval();
+        if (interval is null)
+        {
+            MessageBox.Show(this, "Select an interval first.", "GameTimeTracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (interval.EndedAt is null)
+        {
+            MessageBox.Show(this, "Running intervals can be edited after the game stops.", "GameTimeTracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new ManualIntervalDialog(_state.Games, interval);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        interval.GameId = dialog.Interval.GameId;
+        interval.StartedAt = dialog.Interval.StartedAt;
+        interval.EndedAt = dialog.Interval.EndedAt;
+        interval.Source = dialog.Interval.Source;
+        interval.Note = dialog.Interval.Note;
+
+        _store.Save(_state);
+        RefreshRows();
+    }
+
+    private void DeleteSelectedInterval()
+    {
+        var interval = GetSelectedInterval();
+        if (interval is null)
+        {
+            MessageBox.Show(this, "Select an interval first.", "GameTimeTracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        if (interval.EndedAt is null)
+        {
+            MessageBox.Show(this, "Running intervals can be deleted after the game stops.", "GameTimeTracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        var answer = MessageBox.Show(
+            this,
+            $"Delete interval from {FormatDateTime(interval.StartedAt)}?",
+            "GameTimeTracker",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Warning);
+
+        if (answer != DialogResult.Yes)
+        {
+            return;
+        }
+
+        _state.Intervals.Remove(interval);
+        _store.Save(_state);
+        RefreshRows();
+    }
+
     private void RefreshRows()
     {
         var selectedGameId = GetSelectedGameId();
@@ -183,6 +259,7 @@ public sealed class MainForm : Form
             .OrderByDescending(interval => interval.StartedAt))
         {
             _intervalRows.Add(new IntervalRow(
+                interval.Id,
                 FormatDateTime(interval.StartedAt),
                 interval.EndedAt is null ? "Running" : FormatDateTime(interval.EndedAt.Value),
                 FormatHours(interval.Duration(now)),
@@ -201,6 +278,16 @@ public sealed class MainForm : Form
         return _rows.Count == 0 ? null : _rows[0].GameId;
     }
 
+    private PlayInterval? GetSelectedInterval()
+    {
+        if (_intervalGrid.CurrentRow?.DataBoundItem is not IntervalRow selected)
+        {
+            return null;
+        }
+
+        return _state.Intervals.FirstOrDefault(interval => interval.Id == selected.IntervalId);
+    }
+
     private static string FormatHours(TimeSpan value)
     {
         var sign = value < TimeSpan.Zero ? "-" : "";
@@ -215,5 +302,5 @@ public sealed class MainForm : Form
 }
 
 public sealed record GameRow(Guid GameId, string Name, string Processes, string Running, string Today, string Total, string IconPath);
-public sealed record IntervalRow(string Start, string End, string Duration, string Source, string Note);
+public sealed record IntervalRow(Guid IntervalId, string Start, string End, string Duration, string Source, string Note);
 
