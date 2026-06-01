@@ -17,8 +17,8 @@ public sealed class MainForm : Form
     private readonly Button _addIntervalButton = new() { Text = "Add time", AutoSize = true };
     private readonly Button _editIntervalButton = new() { Text = "Edit time", AutoSize = true };
     private readonly Button _deleteIntervalButton = new() { Text = "Delete time", AutoSize = true };
+    private readonly Button _capacityRulesButton = new() { Text = "Capacity rules", AutoSize = true };
     private readonly Button _refreshButton = new() { Text = "Refresh", AutoSize = true };
-    private readonly NumericUpDown _dailyCapacity = new() { Minimum = 0, Maximum = 1440, Value = 120, Increment = 15, Width = 90 };
     private readonly Label _capacityLabel = new() { AutoSize = true, Padding = new Padding(8, 6, 0, 0) };
 
     public MainForm(TrackerState state, TrackingEngine tracker, JsonGameStore store)
@@ -58,8 +58,8 @@ public sealed class MainForm : Form
         _addIntervalButton.Click += (_, _) => AddManualInterval();
         _editIntervalButton.Click += (_, _) => EditSelectedInterval();
         _deleteIntervalButton.Click += (_, _) => DeleteSelectedInterval();
+        _capacityRulesButton.Click += (_, _) => EditCapacityRules();
         _refreshButton.Click += (_, _) => RefreshRows();
-        _dailyCapacity.ValueChanged += (_, _) => RefreshRows();
         _tracker.TrackingChanged += (_, _) => RefreshRows();
 
         var toolbar = new FlowLayoutPanel
@@ -74,9 +74,8 @@ public sealed class MainForm : Form
         toolbar.Controls.Add(_addIntervalButton);
         toolbar.Controls.Add(_editIntervalButton);
         toolbar.Controls.Add(_deleteIntervalButton);
+        toolbar.Controls.Add(_capacityRulesButton);
         toolbar.Controls.Add(_refreshButton);
-        toolbar.Controls.Add(new Label { Text = "Daily capacity, min", AutoSize = true, Padding = new Padding(16, 6, 0, 0) });
-        toolbar.Controls.Add(_dailyCapacity);
         toolbar.Controls.Add(_capacityLabel);
 
         var split = new SplitContainer
@@ -200,6 +199,13 @@ public sealed class MainForm : Form
         RefreshRows();
     }
 
+    private void EditCapacityRules()
+    {
+        using var dialog = new CapacityRulesDialog(_state.Games, _tracker);
+        dialog.ShowDialog(this);
+        RefreshRows();
+    }
+
     private void RefreshRows()
     {
         var selectedGameId = GetSelectedGameId();
@@ -223,8 +229,7 @@ public sealed class MainForm : Form
                 game.IconPath ?? ""));
         }
 
-        var capacity = _tracker.GetCapacitySnapshot(null, CapacityPeriod.Day, (int)_dailyCapacity.Value);
-        _capacityLabel.Text = $"Today used {FormatHours(capacity.Used)} / remaining {FormatHours(capacity.Remaining)}";
+        _capacityLabel.Text = FormatCapacityStatus();
 
         if (selectedGameId is not null)
         {
@@ -286,6 +291,23 @@ public sealed class MainForm : Form
         }
 
         return _state.Intervals.FirstOrDefault(interval => interval.Id == selected.IntervalId);
+    }
+
+    private string FormatCapacityStatus()
+    {
+        var rule = _state.CapacityRules
+            .Where(rule => rule.IsEnabled)
+            .OrderBy(rule => rule.GameId is null ? 0 : 1)
+            .ThenBy(rule => rule.Period)
+            .FirstOrDefault();
+
+        if (rule is null)
+        {
+            return "No capacity rule set";
+        }
+
+        var capacity = _tracker.GetCapacitySnapshot(rule.GameId, rule.Period, rule.AllowedMinutes);
+        return $"{rule.Period} capacity: used {FormatHours(capacity.Used)} / remaining {FormatHours(capacity.Remaining)}";
     }
 
     private static string FormatHours(TimeSpan value)

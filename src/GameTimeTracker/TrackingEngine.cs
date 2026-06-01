@@ -75,6 +75,54 @@ public sealed class TrackingEngine : IDisposable
             .Aggregate(TimeSpan.Zero, (total, next) => total + next);
     }
 
+    public IReadOnlyList<CapacityRule> GetCapacityRules()
+    {
+        return _state.CapacityRules;
+    }
+
+    public void UpsertCapacityRule(CapacityRule rule)
+    {
+        if (rule.AllowedMinutes < 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(rule), "Allowed minutes must be zero or greater.");
+        }
+
+        var existing = _state.CapacityRules.FirstOrDefault(item => item.Id == rule.Id);
+        if (existing is null)
+        {
+            _state.CapacityRules.Add(new CapacityRule
+            {
+                Id = rule.Id == Guid.Empty ? Guid.NewGuid() : rule.Id,
+                GameId = rule.GameId,
+                Period = rule.Period,
+                AllowedMinutes = rule.AllowedMinutes,
+                IsEnabled = rule.IsEnabled
+            });
+        }
+        else
+        {
+            existing.GameId = rule.GameId;
+            existing.Period = rule.Period;
+            existing.AllowedMinutes = rule.AllowedMinutes;
+            existing.IsEnabled = rule.IsEnabled;
+        }
+
+        SaveAndNotify();
+    }
+
+    public bool DeleteCapacityRule(Guid ruleId)
+    {
+        var existing = _state.CapacityRules.FirstOrDefault(item => item.Id == ruleId);
+        if (existing is null)
+        {
+            return false;
+        }
+
+        _state.CapacityRules.Remove(existing);
+        SaveAndNotify();
+        return true;
+    }
+
     public CapacitySnapshot GetCapacitySnapshot(Guid? gameId, CapacityPeriod period, int allowedMinutes)
     {
         var now = DateTimeOffset.Now;
@@ -101,6 +149,12 @@ public sealed class TrackingEngine : IDisposable
         var diff = (7 + (now.DayOfWeek - DayOfWeek.Monday)) % 7;
         var startDate = now.Date.AddDays(-diff);
         return new DateTimeOffset(startDate, now.Offset);
+    }
+
+    private void SaveAndNotify()
+    {
+        _store.Save(_state);
+        TrackingChanged?.Invoke(this, EventArgs.Empty);
     }
 
     private static string NormalizeProcessName(string processName)
