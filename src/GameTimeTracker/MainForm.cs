@@ -295,19 +295,57 @@ public sealed class MainForm : Form
 
     private string FormatCapacityStatus()
     {
-        var rule = _state.CapacityRules
-            .Where(rule => rule.IsEnabled)
-            .OrderBy(rule => rule.GameId is null ? 0 : 1)
-            .ThenBy(rule => rule.Period)
-            .FirstOrDefault();
+        var selectedGameId = GetSelectedGameId();
+        var rule = GetCapacityRuleFor(selectedGameId);
 
         if (rule is null)
         {
             return "No capacity rule set";
         }
 
-        var capacity = _tracker.GetCapacitySnapshot(rule.GameId, rule.Period, rule.AllowedMinutes);
-        return $"{rule.Period} capacity: used {FormatHours(capacity.Used)} / remaining {FormatHours(capacity.Remaining)}";
+        var verdict = _tracker.GetCapacityVerdict(rule);
+        var scope = GetCapacityScopeName(verdict.GameId);
+        var status = verdict.IsOverCapacity
+            ? $"over by {FormatHours(verdict.Remaining.Duration())}"
+            : $"remaining {FormatHours(verdict.Remaining)}";
+
+        return $"{scope} {verdict.Period} capacity: allowed {FormatHours(verdict.Allowed)} / used {FormatHours(verdict.Used)} / {status}";
+    }
+
+    private CapacityRule? GetCapacityRuleFor(Guid? selectedGameId)
+    {
+        var enabledRules = _state.CapacityRules
+            .Where(rule => rule.IsEnabled)
+            .ToList();
+
+        if (selectedGameId is not null)
+        {
+            var gameRule = enabledRules
+                .Where(rule => rule.GameId == selectedGameId.Value)
+                .OrderBy(rule => rule.Period)
+                .FirstOrDefault();
+
+            if (gameRule is not null)
+            {
+                return gameRule;
+            }
+        }
+
+        return enabledRules
+            .Where(rule => rule.GameId is null)
+            .OrderBy(rule => rule.Period)
+            .FirstOrDefault()
+            ?? enabledRules.OrderBy(rule => rule.Period).FirstOrDefault();
+    }
+
+    private string GetCapacityScopeName(Guid? gameId)
+    {
+        if (gameId is null)
+        {
+            return "All games";
+        }
+
+        return _state.Games.FirstOrDefault(game => game.Id == gameId.Value)?.DisplayName ?? "Selected game";
     }
 
     private static string FormatHours(TimeSpan value)

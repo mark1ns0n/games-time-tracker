@@ -69,9 +69,7 @@ public sealed class TrackingEngine : IDisposable
         var now = DateTimeOffset.Now;
         return _state.Intervals
             .Where(interval => interval.GameId == gameId)
-            .Where(interval => from is null || (interval.EndedAt ?? now) >= from.Value)
-            .Where(interval => to is null || interval.StartedAt <= to.Value)
-            .Select(interval => interval.Duration(now))
+            .Select(interval => GetIntervalDurationWithin(interval, now, from, to))
             .Aggregate(TimeSpan.Zero, (total, next) => total + next);
     }
 
@@ -126,22 +124,45 @@ public sealed class TrackingEngine : IDisposable
     public CapacitySnapshot GetCapacitySnapshot(Guid? gameId, CapacityPeriod period, int allowedMinutes)
     {
         var now = DateTimeOffset.Now;
-        var start = period switch
+        var start = GetPeriodStart(now, period);
+
+        var used = _state.Intervals
+            .Where(interval => gameId is null || interval.GameId == gameId.Value)
+            .Select(interval => GetIntervalDurationWithin(interval, now, start, now))
+            .Aggregate(TimeSpan.Zero, (total, next) => total + next);
+
+        var allowed = TimeSpan.FromMinutes(allowedMinutes);
+        return new CapacitySnapshot(allowed, used, allowed - used);
+    }
+
+    public CapacityVerdict GetCapacityVerdict(CapacityRule rule)
+    {
+        var snapshot = GetCapacitySnapshot(rule.GameId, rule.Period, rule.AllowedMinutes);
+        return new CapacityVerdict(rule.GameId, rule.Period, snapshot.Allowed, snapshot.Used, snapshot.Remaining);
+    }
+
+    private static DateTimeOffset GetPeriodStart(DateTimeOffset now, CapacityPeriod period)
+    {
+        return period switch
         {
             CapacityPeriod.Day => new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset),
             CapacityPeriod.Week => StartOfWeek(now),
             CapacityPeriod.Month => new DateTimeOffset(now.Year, now.Month, 1, 0, 0, 0, now.Offset),
             _ => now
         };
+    }
 
-        var used = _state.Intervals
-            .Where(interval => gameId is null || interval.GameId == gameId.Value)
-            .Where(interval => (interval.EndedAt ?? now) >= start)
-            .Select(interval => interval.Duration(now))
-            .Aggregate(TimeSpan.Zero, (total, next) => total + next);
+    private static TimeSpan GetIntervalDurationWithin(
+        PlayInterval interval,
+        DateTimeOffset now,
+        DateTimeOffset? from,
+        DateTimeOffset? to)
+    {
+        var intervalEnd = interval.EndedAt ?? now;
+        var start = from is null || interval.StartedAt > from.Value ? interval.StartedAt : from.Value;
+        var end = to is null || intervalEnd < to.Value ? intervalEnd : to.Value;
 
-        var allowed = TimeSpan.FromMinutes(allowedMinutes);
-        return new CapacitySnapshot(allowed, used, allowed - used);
+        return end > start ? end - start : TimeSpan.Zero;
     }
 
     private static DateTimeOffset StartOfWeek(DateTimeOffset now)
@@ -167,3 +188,12 @@ public sealed class TrackingEngine : IDisposable
 }
 
 public readonly record struct CapacitySnapshot(TimeSpan Allowed, TimeSpan Used, TimeSpan Remaining);
+public readonly record struct CapacityVerdict(
+    Guid? GameId,
+    CapacityPeriod Period,
+    TimeSpan Allowed,
+    TimeSpan Used,
+    TimeSpan Remaining)
+{
+    public bool IsOverCapacity => Remaining < TimeSpan.Zero;
+}
