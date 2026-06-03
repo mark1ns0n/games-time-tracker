@@ -6,13 +6,17 @@ namespace GameTimeTracker;
 
 public sealed class MainForm : Form
 {
+    private static readonly Size GameIconSize = new(32, 32);
+
     private readonly TrackerState _state;
     private readonly TrackingEngine _tracker;
     private readonly JsonGameStore _store;
     private readonly BindingList<GameRow> _rows = [];
     private readonly BindingList<IntervalRow> _intervalRows = [];
-    private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, AutoGenerateColumns = true, ReadOnly = true };
+    private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, AutoGenerateColumns = false, ReadOnly = true };
     private readonly DataGridView _intervalGrid = new() { Dock = DockStyle.Fill, AutoGenerateColumns = true, ReadOnly = true };
+    private readonly Dictionary<string, Image> _iconCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Image _fallbackIcon = IconImageLoader.CreateFallback(GameIconSize);
     private readonly Button _addGameButton = new() { Text = "Add game", AutoSize = true };
     private readonly Button _addIntervalButton = new() { Text = "Add time", AutoSize = true };
     private readonly Button _editIntervalButton = new() { Text = "Edit time", AutoSize = true };
@@ -32,17 +36,12 @@ public sealed class MainForm : Form
         Height = 560;
         MinimumSize = new Size(760, 420);
 
+        ConfigureGameGrid();
         _grid.DataSource = _rows;
         _grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         _grid.MultiSelect = false;
         _grid.SelectionChanged += (_, _) => RefreshIntervalRows();
-        _grid.DataBindingComplete += (_, _) =>
-        {
-            if (_grid.Columns[nameof(GameRow.GameId)] is { } idColumn)
-            {
-                idColumn.Visible = false;
-            }
-        };
+        _grid.CellFormatting += FormatGameGridIcon;
 
         _intervalGrid.DataSource = _intervalRows;
         _intervalGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -100,7 +99,75 @@ public sealed class MainForm : Form
         {
             _tracker.Dispose();
             _store.Save(_state);
+            DisposeIcons();
         };
+    }
+
+    private void ConfigureGameGrid()
+    {
+        _grid.RowTemplate.Height = 38;
+        _grid.Columns.Add(new DataGridViewImageColumn
+        {
+            Name = "Icon",
+            HeaderText = "",
+            Width = 42,
+            ImageLayout = DataGridViewImageCellLayout.Zoom,
+            Resizable = DataGridViewTriState.False,
+            SortMode = DataGridViewColumnSortMode.NotSortable
+        });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Name), DataPropertyName = nameof(GameRow.Name), HeaderText = "Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 160 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Processes), DataPropertyName = nameof(GameRow.Processes), HeaderText = "Processes", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 170 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Running), DataPropertyName = nameof(GameRow.Running), HeaderText = "Running", Width = 80 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Today), DataPropertyName = nameof(GameRow.Today), HeaderText = "Today", Width = 90 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Total), DataPropertyName = nameof(GameRow.Total), HeaderText = "Total", Width = 90 });
+    }
+
+    private void FormatGameGridIcon(object? sender, DataGridViewCellFormattingEventArgs e)
+    {
+        if (_grid.Columns[e.ColumnIndex].Name != "Icon")
+        {
+            return;
+        }
+
+        if (_grid.Rows[e.RowIndex].DataBoundItem is GameRow row)
+        {
+            e.Value = GetGameIcon(row.IconPath);
+            e.FormattingApplied = true;
+        }
+    }
+
+    private Image GetGameIcon(string? iconPath)
+    {
+        if (string.IsNullOrWhiteSpace(iconPath))
+        {
+            return _fallbackIcon;
+        }
+
+        var key = Environment.ExpandEnvironmentVariables(iconPath.Trim());
+        if (_iconCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var icon = IconImageLoader.LoadBitmap(key, GameIconSize);
+        if (icon is null)
+        {
+            return _fallbackIcon;
+        }
+
+        _iconCache[key] = icon;
+        return icon;
+    }
+
+    private void DisposeIcons()
+    {
+        foreach (var icon in _iconCache.Values)
+        {
+            icon.Dispose();
+        }
+
+        _iconCache.Clear();
+        _fallbackIcon.Dispose();
     }
 
     private void AddGame()
