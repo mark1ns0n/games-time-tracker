@@ -12,4 +12,5 @@ internal static class AppPaths
     }
 
     public static string DataFilePath => Path.Combine(AppDataDirectory, "tracker-data.json");
+    public static string IconCacheDirectory => Path.Combine(AppDataDirectory, "icons");
 }

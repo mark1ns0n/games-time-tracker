@@ -1,4 +1,7 @@
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace GameTimeTracker;
 
@@ -48,6 +51,45 @@ internal static class IconImageLoader
         }
     }
 
+    public static string? CacheExecutableIcon(string? executablePath, Size size)
+    {
+        if (string.IsNullOrWhiteSpace(executablePath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var path = Environment.ExpandEnvironmentVariables(executablePath.Trim());
+            if (!Path.GetExtension(path).Equals(".exe", StringComparison.OrdinalIgnoreCase) || !File.Exists(path))
+            {
+                return null;
+            }
+
+            Directory.CreateDirectory(AppPaths.IconCacheDirectory);
+            var destination = Path.Combine(AppPaths.IconCacheDirectory, CreateCachedIconFileName(path));
+            if (File.Exists(destination))
+            {
+                return destination;
+            }
+
+            using var icon = Icon.ExtractAssociatedIcon(path);
+            if (icon is null)
+            {
+                return null;
+            }
+
+            using var iconBitmap = icon.ToBitmap();
+            using var cachedBitmap = FitToCanvas(iconBitmap, size);
+            cachedBitmap.Save(destination, ImageFormat.Png);
+            return destination;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public static Bitmap CreateFallback(Size size)
     {
         var bitmap = new Bitmap(size.Width, size.Height);
@@ -68,6 +110,17 @@ internal static class IconImageLoader
         graphics.DrawString("G", font, glyphBrush, bounds, format);
 
         return bitmap;
+    }
+
+    private static string CreateCachedIconFileName(string executablePath)
+    {
+        var file = new FileInfo(executablePath);
+        var safeName = string.Concat(
+            Path.GetFileNameWithoutExtension(executablePath)
+                .Select(character => Path.GetInvalidFileNameChars().Contains(character) ? '_' : character));
+        var identity = $"{file.FullName.ToUpperInvariant()}|{file.Length}|{file.LastWriteTimeUtc.Ticks}";
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..12].ToLowerInvariant();
+        return $"{safeName}-{hash}.png";
     }
 
     private static Bitmap FitToCanvas(Image image, Size size)

@@ -6,6 +6,9 @@ namespace GameTimeTracker;
 
 public sealed class GameProfileDialog : Form
 {
+    private static readonly Size PreviewIconSize = new(32, 32);
+    private static readonly Size CachedIconSize = new(128, 128);
+
     private readonly TextBox _name = new() { Width = 320 };
     private readonly TextBox _processes = new() { Width = 320 };
     private readonly TextBox _icon = new() { Width = 236 };
@@ -102,15 +105,15 @@ public sealed class GameProfileDialog : Form
 
         if (dialog.ShowDialog(this) == DialogResult.OK)
         {
-            _icon.Text = dialog.FileName;
+            _icon.Text = CacheIconSource(dialog.FileName);
         }
     }
 
     private void RefreshIconPreview()
     {
         var previous = _iconPreview.Image;
-        _iconPreview.Image = IconImageLoader.LoadBitmap(_icon.Text, new Size(32, 32))
-            ?? IconImageLoader.CreateFallback(new Size(32, 32));
+        _iconPreview.Image = IconImageLoader.LoadBitmap(_icon.Text, PreviewIconSize)
+            ?? IconImageLoader.CreateFallback(PreviewIconSize);
         previous?.Dispose();
     }
 
@@ -133,8 +136,14 @@ public sealed class GameProfileDialog : Form
         {
             DisplayName = _name.Text.Trim(),
             ProcessNames = processNames,
-            IconPath = string.IsNullOrWhiteSpace(_icon.Text) ? null : _icon.Text.Trim()
+            IconPath = string.IsNullOrWhiteSpace(_icon.Text) ? null : CacheIconSource(_icon.Text)
         };
+    }
+
+    private static string CacheIconSource(string sourcePath)
+    {
+        var trimmed = sourcePath.Trim();
+        return IconImageLoader.CacheExecutableIcon(trimmed, CachedIconSize) ?? trimmed;
     }
 
     private static string NormalizeProcessName(string value)
