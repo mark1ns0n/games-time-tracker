@@ -23,8 +23,21 @@ public sealed class PlayInterval
     public Guid GameId { get; set; }
     public DateTimeOffset StartedAt { get; set; }
     public DateTimeOffset? EndedAt { get; set; }
+    public List<ActivePlayInterval> ActiveIntervals { get; set; } = [];
     public IntervalSource Source { get; set; } = IntervalSource.ProcessTracker;
     public string? Note { get; set; }
+
+    public TimeSpan Duration(DateTimeOffset now)
+    {
+        var end = EndedAt ?? now;
+        return end > StartedAt ? end - StartedAt : TimeSpan.Zero;
+    }
+}
+
+public sealed class ActivePlayInterval
+{
+    public DateTimeOffset StartedAt { get; set; }
+    public DateTimeOffset? EndedAt { get; set; }
 
     public TimeSpan Duration(DateTimeOffset now)
     {

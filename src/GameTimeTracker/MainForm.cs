@@ -32,7 +32,7 @@ public sealed class MainForm : Form
         _store = store;
 
         Text = "GameTimeTracker";
-        Width = 980;
+        Width = 1180;
         Height = 560;
         MinimumSize = new Size(760, 420);
 
@@ -117,9 +117,11 @@ public sealed class MainForm : Form
         });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Name), DataPropertyName = nameof(GameRow.Name), HeaderText = "Name", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 160 });
         _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Processes), DataPropertyName = nameof(GameRow.Processes), HeaderText = "Processes", AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill, FillWeight = 170 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Running), DataPropertyName = nameof(GameRow.Running), HeaderText = "Running", Width = 80 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Today), DataPropertyName = nameof(GameRow.Today), HeaderText = "Today", Width = 90 });
-        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Total), DataPropertyName = nameof(GameRow.Total), HeaderText = "Total", Width = 90 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.Status), DataPropertyName = nameof(GameRow.Status), HeaderText = "Status", Width = 90 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.TodayRunning), DataPropertyName = nameof(GameRow.TodayRunning), HeaderText = "Today running", Width = 105 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.TodayActive), DataPropertyName = nameof(GameRow.TodayActive), HeaderText = "Today active", Width = 100 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.TotalRunning), DataPropertyName = nameof(GameRow.TotalRunning), HeaderText = "Total running", Width = 105 });
+        _grid.Columns.Add(new DataGridViewTextBoxColumn { Name = nameof(GameRow.TotalActive), DataPropertyName = nameof(GameRow.TotalActive), HeaderText = "Total active", Width = 100 });
     }
 
     private void FormatGameGridIcon(object? sender, DataGridViewCellFormattingEventArgs e)
@@ -283,16 +285,21 @@ public sealed class MainForm : Form
         {
             var open = _tracker.GetOpenInterval(game.Id);
             var todayStart = new DateTimeOffset(now.Year, now.Month, now.Day, 0, 0, 0, now.Offset);
-            var total = _tracker.GetTotalPlayed(game.Id);
-            var today = _tracker.GetTotalPlayed(game.Id, todayStart);
+            var totalRunning = _tracker.GetTotalPlayed(game.Id);
+            var totalActive = _tracker.GetTotalActive(game.Id);
+            var todayRunning = _tracker.GetTotalPlayed(game.Id, todayStart);
+            var todayActive = _tracker.GetTotalActive(game.Id, todayStart);
+            var status = open is null ? "No" : _tracker.IsGameActive(game.Id) ? "Active" : "Background";
 
             _rows.Add(new GameRow(
                 game.Id,
                 game.DisplayName,
                 string.Join(", ", game.ProcessNames),
-                open is null ? "No" : "Yes",
-                FormatHours(today),
-                FormatHours(total),
+                status,
+                FormatHours(todayRunning),
+                FormatHours(todayActive),
+                FormatHours(totalRunning),
+                FormatHours(totalActive),
                 game.IconPath ?? ""));
         }
 
@@ -335,6 +342,7 @@ public sealed class MainForm : Form
                 FormatDateTime(interval.StartedAt),
                 interval.EndedAt is null ? "Running" : FormatDateTime(interval.EndedAt.Value),
                 FormatHours(interval.Duration(now)),
+                FormatHours(_tracker.GetActiveDuration(interval, now)),
                 interval.Source.ToString(),
                 interval.Note ?? ""));
         }
@@ -428,6 +436,15 @@ public sealed class MainForm : Form
     }
 }
 
-public sealed record GameRow(Guid GameId, string Name, string Processes, string Running, string Today, string Total, string IconPath);
-public sealed record IntervalRow(Guid IntervalId, string Start, string End, string Duration, string Source, string Note);
+public sealed record GameRow(
+    Guid GameId,
+    string Name,
+    string Processes,
+    string Status,
+    string TodayRunning,
+    string TodayActive,
+    string TotalRunning,
+    string TotalActive,
+    string IconPath);
+public sealed record IntervalRow(Guid IntervalId, string Start, string End, string Running, string Active, string Source, string Note);
 

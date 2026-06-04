@@ -22,17 +22,47 @@ public sealed class TrackingEngine : IDisposable
         _timer.Start();
     }
 
-    public void Stop() => _timer.Stop();
+    public void Stop()
+    {
+        _timer.Stop();
+
+        var now = DateTimeOffset.Now;
+        var changed = false;
+        foreach (var interval in _state.Intervals.Where(interval =>
+            interval.Source == IntervalSource.ProcessTracker && interval.EndedAt is null))
+        {
+            var activeInterval = GetOpenActiveInterval(interval);
+            if (activeInterval is not null)
+            {
+                activeInterval.EndedAt = now;
+            }
+
+            interval.EndedAt = now;
+            changed = true;
+        }
+
+        if (changed)
+        {
+            _store.Save(_state);
+        }
+    }
 
     public void Poll()
     {
         var now = DateTimeOffset.Now;
         var running = _sampler.GetRunningProcessNames();
+        var foregroundProcess = _sampler.GetForegroundProcessName();
         var changed = false;
 
         foreach (var game in _state.Games.Where(game => game.IsEnabled))
         {
-            var isRunning = game.ProcessNames.Any(process => running.Contains(NormalizeProcessName(process)));
+            var processNames = game.ProcessNames
+                .Select(NormalizeProcessName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var isRunning = processNames.Any(running.Contains);
+            var isActive = isRunning
+                && foregroundProcess is not null
+                && processNames.Contains(foregroundProcess);
             var openInterval = GetOpenInterval(game.Id);
 
             if (isRunning && openInterval is null)
@@ -44,10 +74,28 @@ public sealed class TrackingEngine : IDisposable
                     Source = IntervalSource.ProcessTracker
                 });
                 changed = true;
+                openInterval = GetOpenInterval(game.Id);
             }
             else if (!isRunning && openInterval is not null)
             {
                 openInterval.EndedAt = now;
+                changed = true;
+            }
+
+            if (openInterval is null)
+            {
+                continue;
+            }
+
+            var openActiveInterval = GetOpenActiveInterval(openInterval);
+            if (isActive && openActiveInterval is null)
+            {
+                openInterval.ActiveIntervals.Add(new ActivePlayInterval { StartedAt = now });
+                changed = true;
+            }
+            else if (!isActive && openActiveInterval is not null)
+            {
+                openActiveInterval.EndedAt = now;
                 changed = true;
             }
         }
@@ -64,6 +112,12 @@ public sealed class TrackingEngine : IDisposable
         return _state.Intervals.LastOrDefault(interval => interval.GameId == gameId && interval.EndedAt is null);
     }
 
+    public bool IsGameActive(Guid gameId)
+    {
+        var openInterval = GetOpenInterval(gameId);
+        return openInterval is not null && GetOpenActiveInterval(openInterval) is not null;
+    }
+
     public TimeSpan GetTotalPlayed(Guid gameId, DateTimeOffset? from = null, DateTimeOffset? to = null)
     {
         var now = DateTimeOffset.Now;
@@ -71,6 +125,20 @@ public sealed class TrackingEngine : IDisposable
             .Where(interval => interval.GameId == gameId)
             .Select(interval => GetIntervalDurationWithin(interval, now, from, to))
             .Aggregate(TimeSpan.Zero, (total, next) => total + next);
+    }
+
+    public TimeSpan GetTotalActive(Guid gameId, DateTimeOffset? from = null, DateTimeOffset? to = null)
+    {
+        var now = DateTimeOffset.Now;
+        return _state.Intervals
+            .Where(interval => interval.GameId == gameId)
+            .Select(interval => GetActiveDurationWithin(interval, now, from, to))
+            .Aggregate(TimeSpan.Zero, (total, next) => total + next);
+    }
+
+    public TimeSpan GetActiveDuration(PlayInterval interval, DateTimeOffset? now = null)
+    {
+        return GetActiveDurationWithin(interval, now ?? DateTimeOffset.Now, null, null);
     }
 
     public IReadOnlyList<CapacityRule> GetCapacityRules()
@@ -128,7 +196,7 @@ public sealed class TrackingEngine : IDisposable
 
         var used = _state.Intervals
             .Where(interval => gameId is null || interval.GameId == gameId.Value)
-            .Select(interval => GetIntervalDurationWithin(interval, now, start, now))
+            .Select(interval => GetActiveDurationWithin(interval, now, start, now))
             .Aggregate(TimeSpan.Zero, (total, next) => total + next);
 
         var allowed = TimeSpan.FromMinutes(allowedMinutes);
@@ -165,6 +233,40 @@ public sealed class TrackingEngine : IDisposable
         return end > start ? end - start : TimeSpan.Zero;
     }
 
+    private static TimeSpan GetActiveDurationWithin(
+        PlayInterval interval,
+        DateTimeOffset now,
+        DateTimeOffset? from,
+        DateTimeOffset? to)
+    {
+        if (interval.Source != IntervalSource.ProcessTracker)
+        {
+            return GetIntervalDurationWithin(interval, now, from, to);
+        }
+
+        return interval.ActiveIntervals
+            .Select(active => GetActiveIntervalDurationWithin(active, now, from, to))
+            .Aggregate(TimeSpan.Zero, (total, next) => total + next);
+    }
+
+    private static TimeSpan GetActiveIntervalDurationWithin(
+        ActivePlayInterval interval,
+        DateTimeOffset now,
+        DateTimeOffset? from,
+        DateTimeOffset? to)
+    {
+        var intervalEnd = interval.EndedAt ?? now;
+        var start = from is null || interval.StartedAt > from.Value ? interval.StartedAt : from.Value;
+        var end = to is null || intervalEnd < to.Value ? intervalEnd : to.Value;
+
+        return end > start ? end - start : TimeSpan.Zero;
+    }
+
+    private static ActivePlayInterval? GetOpenActiveInterval(PlayInterval interval)
+    {
+        return interval.ActiveIntervals.LastOrDefault(active => active.EndedAt is null);
+    }
+
     private static DateTimeOffset StartOfWeek(DateTimeOffset now)
     {
         var diff = (7 + (now.DayOfWeek - DayOfWeek.Monday)) % 7;
@@ -184,7 +286,11 @@ public sealed class TrackingEngine : IDisposable
         return trimmed.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? trimmed : trimmed + ".exe";
     }
 
-    public void Dispose() => _timer.Dispose();
+    public void Dispose()
+    {
+        Stop();
+        _timer.Dispose();
+    }
 }
 
 public readonly record struct CapacitySnapshot(TimeSpan Allowed, TimeSpan Used, TimeSpan Remaining);
