@@ -19,6 +19,7 @@ public sealed class MainForm : Form
     private readonly Image _fallbackIcon = IconImageLoader.CreateFallback(GameIconSize);
     private readonly Button _addGameButton = new() { Text = "Add game", AutoSize = true };
     private readonly Button _importSteamButton = new() { Text = "Import Steam", AutoSize = true };
+    private readonly Button _importEpicButton = new() { Text = "Import Epic", AutoSize = true };
     private readonly Button _addIntervalButton = new() { Text = "Add time", AutoSize = true };
     private readonly Button _editIntervalButton = new() { Text = "Edit time", AutoSize = true };
     private readonly Button _deleteIntervalButton = new() { Text = "Delete time", AutoSize = true };
@@ -56,6 +57,7 @@ public sealed class MainForm : Form
         };
         _addGameButton.Click += (_, _) => AddGame();
         _importSteamButton.Click += (_, _) => ImportSteamGames();
+        _importEpicButton.Click += (_, _) => ImportEpicGames();
         _addIntervalButton.Click += (_, _) => AddManualInterval();
         _editIntervalButton.Click += (_, _) => EditSelectedInterval();
         _deleteIntervalButton.Click += (_, _) => DeleteSelectedInterval();
@@ -73,6 +75,7 @@ public sealed class MainForm : Form
 
         toolbar.Controls.Add(_addGameButton);
         toolbar.Controls.Add(_importSteamButton);
+        toolbar.Controls.Add(_importEpicButton);
         toolbar.Controls.Add(_addIntervalButton);
         toolbar.Controls.Add(_editIntervalButton);
         toolbar.Controls.Add(_deleteIntervalButton);
@@ -200,6 +203,32 @@ public sealed class MainForm : Form
         }
 
         using var dialog = new SteamImportDialog(candidates);
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        foreach (var game in dialog.SelectedGames)
+        {
+            _state.Games.Add(game);
+        }
+
+        _store.Save(_state);
+        _tracker.Poll();
+        RefreshRows();
+    }
+
+    private void ImportEpicGames()
+    {
+        var service = new EpicLibraryImportService();
+        var candidates = service.FindCandidates(_state.Games);
+        if (candidates.Count == 0)
+        {
+            MessageBox.Show(this, "No new installed Epic games were found.", "GameTimeTracker", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        using var dialog = new EpicImportDialog(candidates);
         if (dialog.ShowDialog(this) != DialogResult.OK)
         {
             return;
