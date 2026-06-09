@@ -10,7 +10,7 @@ public sealed class MainForm : Form
 
     private readonly TrackerState _state;
     private readonly TrackingEngine _tracker;
-    private readonly JsonGameStore _store;
+    private readonly IGameStore _store;
     private readonly BindingList<GameRow> _rows = [];
     private readonly BindingList<IntervalRow> _intervalRows = [];
     private readonly DataGridView _grid = new() { Dock = DockStyle.Fill, AutoGenerateColumns = false, ReadOnly = true };
@@ -29,7 +29,7 @@ public sealed class MainForm : Form
     private readonly Button _refreshButton = new() { Text = "Refresh", AutoSize = true };
     private readonly Label _capacityLabel = new() { AutoSize = true, Padding = new Padding(8, 6, 0, 0) };
 
-    public MainForm(TrackerState state, TrackingEngine tracker, JsonGameStore store)
+    public MainForm(TrackerState state, TrackingEngine tracker, IGameStore store)
     {
         _state = state;
         _tracker = tracker;

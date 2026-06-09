@@ -3,13 +3,13 @@
 public sealed class TrackingEngine : IDisposable
 {
     private readonly TrackerState _state;
-    private readonly JsonGameStore _store;
+    private readonly IGameStore _store;
     private readonly ProcessSampler _sampler = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 5000 };
 
     public event EventHandler? TrackingChanged;
 
-    public TrackingEngine(TrackerState state, JsonGameStore store)
+    public TrackingEngine(TrackerState state, IGameStore store)
     {
         _state = state;
         _store = store;

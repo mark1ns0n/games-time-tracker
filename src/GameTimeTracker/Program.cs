@@ -9,7 +9,7 @@ internal static class Program
     private static void Main()
     {
         ApplicationConfiguration.Initialize();
-        var store = new JsonGameStore(AppPaths.DataFilePath);
+        var store = new SqliteGameStore(AppPaths.DatabaseFilePath, AppPaths.DataFilePath);
         var state = store.Load();
         var tracker = new TrackingEngine(state, store);
         Application.Run(new MainForm(state, tracker, store));

@@ -2,7 +2,7 @@
 
 namespace GameTimeTracker;
 
-public sealed class JsonGameStore
+public sealed class JsonGameStore : IGameStore
 {
     private readonly string _path;
     private readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
